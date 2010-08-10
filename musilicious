@@ -1,0 +1,186 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Mojolicious::Lite;
+use Audio::MPD;
+
+use Data::Dumper;
+
+# Hey, what kinda party is this? There's no booze and only one hooker.
+
+my %action_map =
+(
+    playpause => 'pause',
+    play => 'play',
+    stop => 'stop',
+    next => 'next',
+    prev => 'prev',
+);
+
+my $mpd = Audio::MPD->new(host => 'localhost', port => '6600');
+
+get '/' => sub
+{
+    my $self = shift;
+
+    $self->render( _status() );
+} => 'player';
+
+
+get '/action/:action' => sub
+{
+    my $self = shift;
+    my $action = $self->stash('action');
+
+
+    _action($action);
+    $self->redirect_to('player');
+
+} => 'action';
+
+
+# --- 
+
+sub _action
+{
+    my $q = shift;
+    my $action = $action_map{ $q } or die "invalid action: $q";
+
+    $mpd->$action; # just try it..
+}
+
+sub _status
+{
+    my $current = $mpd->current;
+    return
+    (
+         artist => $current->artist || '',
+         title => $current->title || '',
+         album => $current->album || '',
+         'time' => $current->time || '',
+    )
+}
+
+
+
+
+
+app->start;
+
+__DATA__
+
+@@ index.html.ep
+% layout 'default';
+
+<%== include 'player' %>
+
+
+
+@@ player.html.ep
+% layout 'default';
+<div id="player">
+    <div id="display">
+        <span id="artist"><%= $artist %></span><br />
+        <span id="title"><%= $title %></span>
+        <span id="album">(<%= $album %>)</span>
+        <span id="timer"><%= $time %></span>
+    </div>
+    <span id="control">
+    <a id="play"        href="<%= url_for('action', action => 'player') %>">|&gt;</a>
+    <a id="stop"        href="<%= url_for('action', action => 'stop') %>">[ ]</a>
+    <a id="playpause"   href="<%= url_for('action', action => 'playpause') %>">|&gt;/||</a>
+    <a id="next"        href="<%= url_for('action', action => 'next') %>">&rang;&rang;</a>
+    <a id="prev"        href="<%= url_for('action', action => 'prev') %>">&lang;&lang;</a>
+    </span>
+    </div>
+
+
+
+@@ layouts/default.html.ep
+<!doctype html>
+ <style type="text/css">
+<!--
+    a { text-decoration: none; color: black; }
+    form ul
+    {
+        list-style-type: none;
+        margin: 0;
+        padding: 0.5em;
+        font-size: small;
+        position: absolute;
+        right: 1em;
+        background-color: lightgray;
+        border: 1px dotted black;
+    }
+
+    form ul li
+    {
+        display: none;
+    }
+
+    #type { display: block; }
+
+    form ul:hover li
+    {
+        display: block;
+    }
+
+
+    #player
+    {
+        position: absolute;
+        border: 1px solid black;
+        width: auto;
+       background-color: gray;
+    }
+
+    #player form
+    {
+        margin: 1em;
+    }
+
+    #display
+    {
+        background-color: green;
+        border: 0.5em ridge green;
+        padding: 0.5em;
+         margin-bottom: 1em;
+    color: white;
+    }
+
+    #artist { font-size: 24pt }
+    #album { font-size: 18pt }
+    #control { font-size: 24pt; padding: 0.5em; width: 100%}
+    #control a
+    {
+        padding: 0.3em;
+        background-color: #aaa;
+        border: 3px ridge #aaa;
+        text-align: center;
+    }
+
+    #control a:hover
+    {
+        border-style: inset;
+    }
+    #title
+    {
+        font-size: 18pt;
+        margin-left: 1em;
+    }
+-->
+</style>
+
+<html>
+<body>
+    <%== content %>
+</body>
+</html>
+
+
+
+@@ exception.html.ep
+<!doctype html><html>
+    <head><title>Error</title></head>
+    <body><h2>Error</h2></body>
+</html>
