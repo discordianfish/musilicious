@@ -2,7 +2,10 @@
 use strict;
 use warnings;
 use Mojolicious::Lite;
+use Mojo::ByteStream 'b';
+
 use Audio::MPD;
+use Scalar::Util qw(blessed);
 
 use Data::Dumper;
 
@@ -15,6 +18,8 @@ my %action_map =
     stop => 'stop',
     next => 'next',
     prev => 'prev',
+    volume => 'volume',
+    seek => 'seek',
 );
 
 my $mpd = Audio::MPD->new(host => 'localhost', port => '6600');
@@ -23,8 +28,27 @@ get '/' => sub
 {
     my $self = shift;
 
+
     $self->render( _status() );
+
 } => 'player';
+
+
+get '/files/(*path)' => { path => '' } => sub
+{
+    my $self = shift;
+    my $path = $self->stash('path');
+
+
+    my @files = $mpd->collection->items_in_dir($path );
+    my $parent = $path;
+    $parent =~ s/\/?[^\/]*$//; # KISS
+
+
+    $self->render(files => \@files, parent => $parent);
+
+} => 'files';
+
 
 
 get '/action/:action' => sub
@@ -38,47 +62,80 @@ get '/action/:action' => sub
 
 } => 'action';
 
+post '/files' => sub
+{
+    my $self = shift;
+    warn Dumper $self->stash('file');
+} => 'files';
 
+get '/rpc/:action/:value' => { action => 'noop', value => 0 } => sub
+{
+    my $self = shift;
+    my $action = $self->stash('action');
+    my $value = $self->stash('value');
+
+    _action($action, $value) unless $action eq 'noop';
+
+    $self->render_json({ _status() });
+} => 'rpc';
+
+
+get '/static/(*path)' => sub
+{
+    app->static; # ->prefix('/static/');
+} => 'static';
 # --- 
 
 sub _action
 {
     my $q = shift;
+    my $value = shift;
     my $action = $action_map{ $q } or die "invalid action: $q";
 
-    $mpd->$action; # just try it..
+    eval { $mpd->$action($value) }; # just try it..
 }
 
 sub _status
 {
+    # TODO: only fetch really needed values i.e. songinfo does not change until the song changes
     my $current = $mpd->current;
+    my $status = $mpd->status;
+    my $stats = $mpd->stats;
+
+    my ($pos, $length) = split /:/, $status->time->time;
+
     return
     (
          artist => $current->artist || '',
          title => $current->title || '',
          album => $current->album || '',
-         'time' => $current->time || '',
+         time => $status->time->time || '',
+         volume => $status->volume,
+         repeat => $status->repeat,
+         random => $status->random,
+         length => $length,
+         pos => $pos
     )
 }
 
 
-
-
+app->renderer->add_helper(name => sub
+{
+    my $self = shift;
+    my $item = shift;
+    return $item->directory if $item->isa('Audio::MPD::Common::Item::Directory');
+    return $item->playlist if $item->isa('Audio::MPD::Common::Item::Playlist');
+    return $item->file;
+});
 
 app->start;
 
 __DATA__
 
-@@ index.html.ep
-% layout 'default';
-
-<%== include 'player' %>
-
-
-
 @@ player.html.ep
 % layout 'default';
 <div id="player">
+    <div id="volume"></div>
     <div id="display">
         <span id="artist"><%= $artist %></span><br />
         <span id="title"><%= $title %></span>
@@ -92,52 +149,49 @@ __DATA__
     <a id="next"        href="<%= url_for('action', action => 'next') %>">&rang;&rang;</a>
     <a id="prev"        href="<%= url_for('action', action => 'prev') %>">&lang;&lang;</a>
     </span>
+    <div id="seek"></div>
+</div>
+
+@@ files.html.ep
+% layout 'default';
+
+    <div id="files">
+    <a href="<%= url_for('files', path => $parent) %>">back to <%= $parent %></a>
+    <form action="<%= url_for 'files' %>" method='post'>
+% for my $item (@{ $files }) {
+        <input type="checkbox" name="<%= name $item %>">
+            <a href="<%= url_for('files', path => name $item) %>">
+                <%= name $item %>
+            </a>
+            <br/>
+% }
+    </form>
     </div>
 
+    <div id="playlist">
+    </div>
 
 
 @@ layouts/default.html.ep
 <!doctype html>
+<head>
  <style type="text/css">
 <!--
     a { text-decoration: none; color: black; }
-    form ul
-    {
-        list-style-type: none;
-        margin: 0;
-        padding: 0.5em;
-        font-size: small;
-        position: absolute;
-        right: 1em;
-        background-color: lightgray;
-        border: 1px dotted black;
-    }
-
-    form ul li
-    {
-        display: none;
-    }
-
-    #type { display: block; }
-
-    form ul:hover li
-    {
-        display: block;
-    }
-
 
     #player
     {
         position: absolute;
         border: 1px solid black;
         width: auto;
-       background-color: gray;
+        background-color: gray;
     }
 
     #player form
     {
         margin: 1em;
     }
+    #volume { float: left;}
 
     #display
     {
@@ -169,11 +223,64 @@ __DATA__
         margin-left: 1em;
     }
 -->
-</style>
+ </style>
+ <link type="text/css" href="<%= url_for('static', path => 'css/ui-lightness/jquery-ui-1.8.4.custom.css') %>" rel="stylesheet" />   
+ <script type="text/javascript" src="<%= url_for('static', path => '/js/jquery-1.4.2.min.js') %>"></script>
+ <script type="text/javascript" src="<%= url_for('static', path => '/js/jquery-ui-1.8.4.custom.min.js') %>"></script>
+ <script type="text/javascript" src="<%= url_for('static', path => '/js/jquery.dump.js') %>"></script>
 
-<html>
+ <script>
+function update(data)
+{
+
+    $("#artist").html(data.artist);
+    $("#title").html(data.title);
+    $("#album").html(data.album);
+    $("#timer").html(data.timer);
+
+    $("#volume").slider
+    ({
+        orientation: 'vertical',
+        change: volume,
+        value: data.volume
+    });
+
+    $("#seek").slider
+    ({
+        change: seek,
+        value: data.pos,
+        max: data.length,
+    });
+}
+ 
+function volume(event, ui)
+{
+    if(event.originalEvent == undefined) { return };
+    var volume = $('#volume').slider('option', 'value');
+    rpc('volume', volume);
+}
+
+function seek(event, ui)
+{
+    if(event.originalEvent == undefined) { return };
+    var seek = $('#seek').slider('option', 'value');
+    rpc('seek', seek);
+}
+
+function rpc(action, value)
+{
+   var href = '<%= url_for('rpc') %>';
+   if (action) { href = href + '/' + action + '/' + value }
+   $.getJSON(href, update);
+}
+
+ $(document).ready(function() { rpc(), setInterval(rpc, 3000) });
+
+ </script>
 <body>
     <%== content %>
+    <br />
+    <pre><div id="debug"></div></pre>
 </body>
 </html>
 
@@ -184,3 +291,4 @@ __DATA__
     <head><title>Error</title></head>
     <body><h2>Error</h2></body>
 </html>
+
