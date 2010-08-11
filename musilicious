@@ -102,14 +102,19 @@ sub _status
     my $status = $mpd->status;
     my $stats = $mpd->stats;
 
-    my ($pos, $length) = split /:/, $status->time->time;
+    my ($pos, $length);
+    if (my $t = $status->time)
+    {
+        $pos = $t->seconds_sofar;
+        $length = $current->time || '';
+    }
 
     return
     (
          artist => $current->artist || '',
          title => $current->title || '',
          album => $current->album || '',
-         time => $status->time->time || '',
+         time => "$pos/$length" || '',
          volume => $status->volume,
          repeat => $status->repeat,
          random => $status->random,
@@ -143,7 +148,7 @@ __DATA__
         <span id="timer"><%= $time %></span>
     </div>
     <span id="control">
-    <a id="play"        href="<%= url_for('action', action => 'player') %>">|&gt;</a>
+    <a id="play"        href="<%= url_for('action', action => 'play') %>">|&gt;</a>
     <a id="stop"        href="<%= url_for('action', action => 'stop') %>">[ ]</a>
     <a id="playpause"   href="<%= url_for('action', action => 'playpause') %>">|&gt;/||</a>
     <a id="next"        href="<%= url_for('action', action => 'next') %>">&rang;&rang;</a>
