@@ -279,7 +279,7 @@ function rpc(action, value)
    $.getJSON(href, update);
 }
 
- $(document).ready(function() { rpc(), setInterval(rpc, 3000) });
+ $(document).ready(function() { rpc(), setInterval(function() { rpc() }, 3000) });
 
  </script>
 <body>
