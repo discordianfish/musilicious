@@ -6,7 +6,7 @@ use Mojo::ByteStream 'b';
 
 use Audio::MPD;
 use Scalar::Util qw(blessed);
-
+#use Carp qw(confess); $SIG{__WARN__} = \&confess;
 use Data::Dumper;
 
 # Hey, what kinda party is this? There's no booze and only one hooker.
@@ -20,6 +20,10 @@ my %action_map =
     prev => 'prev',
     volume => 'volume',
     seek => 'seek',
+    playlist_clear => [ 'playlist', 'clear' ],
+    playlist_add => [ 'playlist', 'add' ],
+    playlist_delete => [ 'playlist', 'deleteid' ],
+    'collection_to playlist' => [ 'playlist', 'add' ],
 );
 
 my $mpd = Audio::MPD->new(host => 'localhost', port => '6600');
@@ -34,21 +38,31 @@ get '/' => sub
 } => 'player';
 
 
-get '/files/(*path)' => { path => '' } => sub
+get '/collection/(*path)' => { path => '' } => sub
 {
     my $self = shift;
     my $path = $self->stash('path');
 
 
-    my @files = $mpd->collection->items_in_dir($path );
+    my @files = $mpd->collection->items_in_dir($path);
+
+    my @songs =  grep { $_->isa('Audio::MPD::Common::Item::Song') } @files;
+    my @playlists =  grep { $_->isa('Audio::MPD::Common::Item::Playlist') } @files;
+    my @directories =  grep { $_->isa('Audio::MPD::Common::Item::Directory') } @files;
+
     my $parent = $path;
     $parent =~ s/\/?[^\/]*$//; # KISS
 
+    $self->render
+    (
+        songs => \@songs,
+        playlists => \@playlists,
+        directories => \@directories,
+        playlist => $mpd->playlist,
+        parent => $parent
+    );
 
-    $self->render(files => \@files, parent => $parent);
-
-} => 'files';
-
+} => 'editor';
 
 
 get '/action/:action' => sub
@@ -62,11 +76,28 @@ get '/action/:action' => sub
 
 } => 'action';
 
-post '/files' => sub
+post '/action/:target' => sub
 {
     my $self = shift;
-    warn Dumper $self->stash('file');
-} => 'files';
+    my $target = $self->stash('target');
+    my @list = $self->param('data');
+    my $action = $target . '_' . $self->param('action');
+
+    if ($action_map{$action})
+    {  
+        my ($o, $m) = @{ $action_map{$action} };
+        warn "calling mpd->$o->$m(@list)";
+        $mpd->$o->$m(@list);
+        $self->redirect_to('player');
+    } else
+    {
+        die "invalid action: $action";
+    }
+
+} => 'action_post';
+
+
+# JSON RPC for Ajax-Requests
 
 get '/rpc/:action/:value' => { action => 'noop', value => 0 } => sub
 {
@@ -79,6 +110,21 @@ get '/rpc/:action/:value' => { action => 'noop', value => 0 } => sub
     $self->render_json({ _status() });
 } => 'rpc';
 
+post '/rpc/:action' => sub
+{
+    my $self = shift;
+    my @list = $self->param('data[]');
+    my $action = $self->stash('action');
+
+    if (my ($o, $m) = @{ $action_map{$action} })
+    {
+        $mpd->$o->$m(@list);
+    }
+
+    $self->render_json({ _status() });
+} => 'rpc_post';
+
+# Static file delivery
 
 get '/static/(*path)' => sub
 {
@@ -92,7 +138,15 @@ sub _action
     my $value = shift;
     my $action = $action_map{ $q } or die "invalid action: $q";
 
-    eval { $mpd->$action($value) }; # just try it..
+    # just try it..
+    if (ref $action eq 'ARRAY')
+    {
+        my ($o, $m) = @$action;
+        $mpd->$o->$m($value);
+    } else
+    {
+        $mpd->$action($value);
+    }
 }
 
 sub _status
@@ -111,27 +165,13 @@ sub _status
 
     return
     (
-         artist => $current->artist || '',
-         title => $current->title || '',
-         album => $current->album || '',
-         time => "$pos/$length" || '',
-         volume => $status->volume,
-         repeat => $status->repeat,
-         random => $status->random,
+         current => $current,
+         status => $status,
          length => $length,
          pos => $pos
     )
 }
 
-
-app->renderer->add_helper(name => sub
-{
-    my $self = shift;
-    my $item = shift;
-    return $item->directory if $item->isa('Audio::MPD::Common::Item::Directory');
-    return $item->playlist if $item->isa('Audio::MPD::Common::Item::Playlist');
-    return $item->file;
-});
 
 app->start;
 
@@ -142,10 +182,10 @@ __DATA__
 <div id="player">
     <div id="volume"></div>
     <div id="display">
-        <span id="artist"><%= $artist %></span><br />
-        <span id="title"><%= $title %></span>
-        <span id="album">(<%= $album %>)</span>
-        <span id="timer"><%= $time %></span>
+        <span id="artist"><%= eval { $current->artist } %></span><br />
+        <span id="title"><%= eval { $current->title } %></span>
+        <span id="album">(<%= eval { $current->album } %>)</span>
+        <span id="timer"><%= eval { $current->time } %></span>
     </div>
     <span id="control">
     <a id="play"        href="<%= url_for('action', action => 'play') %>">|&gt;</a>
@@ -155,25 +195,79 @@ __DATA__
     <a id="prev"        href="<%= url_for('action', action => 'prev') %>">&lang;&lang;</a>
     </span>
     <div id="seek"></div>
+    <p><a href="<%= url_for('editor') %>">manage playlist</a></p>
 </div>
 
-@@ files.html.ep
+@@ editor.html.ep
 % layout 'default';
 
-    <div id="files">
-    <a href="<%= url_for('files', path => $parent) %>">back to <%= $parent %></a>
-    <form action="<%= url_for 'files' %>" method='post'>
-% for my $item (@{ $files }) {
-        <input type="checkbox" name="<%= name $item %>">
-            <a href="<%= url_for('files', path => name $item) %>">
-                <%= name $item %>
-            </a>
-            <br/>
+    <div id="collection">
+        <h1>Collection</h1>
+        <div id="files">
+            <h2>Files</h2>
+            <form action="<%= url_for 'action_post' %>/collection" method='post'>
+                <select name="data" multiple>
+% for my $directory (@$directories) {
+                    <option value="<%= $directory->directory %>" class="directory"> <%= $directory->directory %>
 % }
-    </form>
-    </div>
+% for my $song (@$songs) {
+                    <option value="<%= $song->file %>" class="directory"> <%= $song->directory %>
+% }
+                </select>
+                <input type="submit" name="action" value="to playlist">
+                <input type="submit" name="action" value="update db">
+            </form>
+            JS Button:
+            <input type="button" value="add" id="playlist_add" />
+            <a href="<%= url_for('editor', path => $parent) %>">back to <%= $parent %></a>
+        </div>
 
+        <div id="directories">
+            <h2>Directories</h2>
+            <ul>
+% for my $directory (@$directories) {
+                <li><a href="<%= url_for('editor', path => $directory->directory) %>"><%= $directory->directory %></a></li>
+% }
+            </ul>
+        </div>
+
+        <div id="playlists">
+            <h2>Playlists</h2>
+            <ul>
+% for my $playlist (@$playlists) {
+                <li>
+                    <a href="<%= url_for('action', action => 'playlist_load', value => $playlist->playlist) %>">
+                        <%= $playlist->playlist %>
+                    </a>
+                </li>
+% }
+            </ul>
+        </div>
+
+    </div>
     <div id="playlist">
+        <h1>Playlist</h1>
+        <h2>Entries</h2>
+        <form action="<%= url_for('action_post') %>/playlist" method="post">
+            <select name="data" multiple>
+% for my $song ( $playlist->as_items ) {
+                <option value="<%= $song->id %>">
+                <span id="info">
+                    <span><%= $song->pos %></span>
+                    <span><%= $song->artist || $song->file %></span>
+                    <span><%= $song->name %></span>
+                    <span><%= $song->album %></span>
+                    <span><%= $song->date %></span>
+                    <span><%= $song->time %></span>
+                </span>
+                </option>
+% }
+            </select>
+            <input type="submit" name="action" value="delete" />
+            <input type="submit" name="action" value="clear" />
+        </form>
+        JS Button:
+    <input type="button" value="clear" id="playlist_clear" />
     </div>
 
 
@@ -227,6 +321,16 @@ __DATA__
         font-size: 18pt;
         margin-left: 1em;
     }
+
+    #collection { float: left; min-height: 10em; background-color: #099; width: 50%;}
+    #playlist { float: right; min-height: 10em; background-color: #911; width: 50%;}
+
+    select { width: 98%; height: 30em; };
+
+    .ui-selected { background-color: red; }
+    .ui-selecting { background-color: orange; }
+
+
 -->
  </style>
  <link type="text/css" href="<%= url_for('static', path => 'css/ui-lightness/jquery-ui-1.8.4.custom.css') %>" rel="stylesheet" />   
@@ -242,6 +346,7 @@ function update(data)
     $("#title").html(data.title);
     $("#album").html(data.album);
     $("#timer").html(data.timer);
+
 
     $("#volume").slider
     ({
@@ -274,12 +379,33 @@ function seek(event, ui)
 
 function rpc(action, value)
 {
-   var href = '<%= url_for('rpc') %>';
-   if (action) { href = href + '/' + action + '/' + value }
-   $.getJSON(href, update);
+    var href = '<%= url_for('rpc') %>';
+
+    if (action) { href = href + '/' + action }
+
+    if (typeof(value) == 'object')
+    {
+        $.post(href, {"data": value}, update);
+    } else
+    {
+        if (value) { href = href + '/' + value }
+
+        $.getJSON(href, update);
+    }
 }
 
- $(document).ready(function() { rpc(), setInterval(function() { rpc() }, 3000) });
+function init()
+{
+    $("#file_list").selectable();
+    $("#play_list").selectable();
+
+    $("#playlist_add").click(function()
+    {
+        rpc('playlist_add', $("#files .ui-selected").map(function() { return this.innerHTML }).get());
+    });
+    $("#playlist_clear").click(function() { rpc('playlist_clear') });
+}
+ $(document).ready(function() { init(); rpc(); setInterval(function() { rpc() }, 3000) });
 
  </script>
 <body>
