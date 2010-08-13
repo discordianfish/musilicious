@@ -24,6 +24,7 @@ my %action_map =
     playlist_add => [ 'playlist', 'add' ],
     playlist_delete => [ 'playlist', 'deleteid' ],
     'collection_to playlist' => [ 'playlist', 'add' ],
+    playlist_play => sub { return ['playid'], [ (shift) ] },
 );
 
 my $mpd = Audio::MPD->new(host => 'localhost', port => '6600');
@@ -76,18 +77,34 @@ get '/action/:action' => sub
 
 } => 'action';
 
-post '/action/:target' => sub
+post '/action/:source' => sub
 {
     my $self = shift;
-    my $target = $self->stash('target');
+    my $source = $self->stash('source');
     my @list = $self->param('data');
-    my $action = $target . '_' . $self->param('action');
+    my $action = $source . '_' . $self->param('action');
 
     if ($action_map{$action})
-    {  
-        my ($o, $m) = @{ $action_map{$action} };
-        warn "calling mpd->$o->$m(@list)";
-        $mpd->$o->$m(@list);
+    {
+        my $o;
+        my $m;
+
+        if (ref $action_map{$action} eq 'CODE')
+        {
+            my ($target, $value) = $action_map{$action}->(@list);
+            ($o, $m) = @$target;
+
+        } else {
+            
+            ($o, $m) = @{ $action_map{$action} };
+        }
+        warn "!!!!                calling mpd->$o->$m(@list)";
+        if ($m)
+        {
+            $mpd->$o->$m(@list);
+        } else {
+            $mpd->$o(@list);
+        }
         $self->redirect_to('player');
     } else
     {
@@ -265,6 +282,7 @@ __DATA__
             </select>
             <input type="submit" name="action" value="delete" />
             <input type="submit" name="action" value="clear" />
+            <input type="submit" name="action" value="play" />
         </form>
         JS Button:
     <input type="button" value="clear" id="playlist_clear" />
