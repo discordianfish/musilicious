@@ -36,7 +36,7 @@ get '/' => sub
 
     $self->render( _status() );
 
-} => 'player';
+} => 'index';
 
 
 get '/collection/(*path)' => { path => '' } => sub
@@ -73,7 +73,7 @@ get '/action/:action' => sub
 
 
     _action($action);
-    $self->redirect_to('player');
+    $self->redirect_to('index');
 
 } => 'action';
 
@@ -105,7 +105,7 @@ post '/action/:source' => sub
         } else {
             $mpd->$o(@list);
         }
-        $self->redirect_to('player');
+        $self->redirect_to('index');
     } else
     {
         die "invalid action: $action";
@@ -194,8 +194,18 @@ app->start;
 
 __DATA__
 
-@@ player.html.ep
+@@ index.html.ep
 % layout 'default';
+<%= include "player" %>
+
+
+@@ editor.html.ep
+% layout 'default';
+<%= include "collection" %>
+<%= include "playlist" %>
+
+
+@@ player.html.ep
 <div id="player">
     <div id="volume"></div>
     <div id="display">
@@ -215,9 +225,7 @@ __DATA__
     <p><a href="<%= url_for('editor') %>">manage playlist</a></p>
 </div>
 
-@@ editor.html.ep
-% layout 'default';
-
+@@ collection.html.ep
     <div id="collection">
         <h1>Collection</h1>
         <div id="files">
@@ -262,6 +270,8 @@ __DATA__
         </div>
 
     </div>
+
+@@ playlist.html.ep
     <div id="playlist">
         <h1>Playlist</h1>
         <h2>Entries</h2>
