@@ -33,11 +33,15 @@ get '/' => sub
 {
     my $self = shift;
 
-
-    $self->render( _status() );
+    $self->render( _status(), playlist => $mpd->playlist );
 
 } => 'index';
 
+get '/tiny' => sub
+{
+    my $self = shift;
+    $self->render( _status() );
+} => 'tiny';
 
 get '/collection/(*path)' => { path => '' } => sub
 {
@@ -197,6 +201,12 @@ __DATA__
 @@ index.html.ep
 % layout 'default';
 <%= include "player" %>
+<%= include "playlist" %>
+
+
+@@ tiny.html.ep
+% layout 'default';
+<%= include "player" %>
 
 
 @@ editor.html.ep
@@ -206,14 +216,17 @@ __DATA__
 
 
 @@ player.html.ep
-<div id="player">
-    <div id="volume"></div>
+<div id="player" class="draggable">
     <div id="display">
-        <span id="artist"><%= eval { $current->artist } %></span><br />
-        <span id="title"><%= eval { $current->title } %></span>
-        <span id="album">(<%= eval { $current->album } %>)</span>
-        <span id="timer"><%= eval { $current->time } %></span>
+        <div id="volume"></div>
+        <div class="text">
+            <span id="artist"><%= eval { $current->artist } %></span><br />
+            <span id="title"><%= eval { $current->title } %></span>
+            <span id="album">(<%= eval { $current->album } %>)</span>
+            <span id="timer"><%= eval { $current->time } %></span>
+        </div>
     </div>
+    <div id="seek"></div>
     <span id="control">
     <a id="play"        href="<%= url_for('action', action => 'play') %>">|&gt;</a>
     <a id="stop"        href="<%= url_for('action', action => 'stop') %>">[ ]</a>
@@ -221,12 +234,10 @@ __DATA__
     <a id="next"        href="<%= url_for('action', action => 'next') %>">&rang;&rang;</a>
     <a id="prev"        href="<%= url_for('action', action => 'prev') %>">&lang;&lang;</a>
     </span>
-    <div id="seek"></div>
-    <p><a href="<%= url_for('editor') %>">manage playlist</a></p>
 </div>
 
 @@ collection.html.ep
-    <div id="collection">
+    <div id="collection" class="draggable">
         <h1>Collection</h1>
         <div id="files">
             <h2>Files</h2>
@@ -272,7 +283,7 @@ __DATA__
     </div>
 
 @@ playlist.html.ep
-    <div id="playlist">
+    <div id="playlist" class="draggable">
         <h1>Playlist</h1>
         <h2>Entries</h2>
         <form action="<%= url_for('action_post') %>/playlist" method="post">
@@ -282,7 +293,7 @@ __DATA__
                 <span id="info">
                     <span><%= $song->pos %></span>
                     <span><%= $song->artist || $song->file %></span>
-                    <span><%= $song->name %></span>
+                    <span><%= $song->title %></span>
                     <span><%= $song->album %></span>
                     <span><%= $song->date %></span>
                     <span><%= $song->time %></span>
@@ -296,6 +307,9 @@ __DATA__
         </form>
         JS Button:
     <input type="button" value="clear" id="playlist_clear" />
+        <div id="links">
+            <p><a href="<%= url_for('editor') %>">editor</a></p>
+        </div>
     </div>
 
 
@@ -304,59 +318,81 @@ __DATA__
 <head>
  <style type="text/css">
 <!--
-    a { text-decoration: none; color: black; }
+    a { text-decoration: none; color: white; }
+    html { background-color: black; color: white; }
+
+    h1,h2 { color: gold; }
 
     #player
     {
+        padding: 0px;
         position: absolute;
-        border: 1px solid black;
+        border: 1px solid Purple;
         width: auto;
-        background-color: gray;
+        background-color: DeepPink;
+        z-index: 1;
     }
-
-    #player form
-    {
-        margin: 1em;
-    }
-    #volume { float: left;}
 
     #display
     {
-        background-color: green;
-        border: 0.5em ridge green;
-        padding: 0.5em;
-         margin-bottom: 1em;
-    color: white;
+        background-color: black;
+        border: 0.5em ridge DeepPink;
+        color: DeepPink;
+        height: 50%;
     }
 
-    #artist { font-size: 24pt }
-    #album { font-size: 18pt }
-    #control { font-size: 24pt; padding: 0.5em; width: 100%}
+    #display .text { margin-left: 6%; }
+
+
+    #artist { font-size: 100%; }
+    #album { font-size: 50% }
+    #control
+    {
+        display: block;
+        margin-top: 2%;
+        margin-bottom: 2%;
+        margin-left: auto;
+        margin-right: auto;
+        font-size: 100%;
+    }
     #control a
     {
-        padding: 0.3em;
-        background-color: #aaa;
-        border: 3px ridge #aaa;
+        display: inline-block; /* thx to bedivere for that hint */
+        font-size: 100%;
+        width: 10%;
+        padding: 0.5%;
+        color: gold;
+        background-color: black;
+        border: 3px dotted black;
         text-align: center;
+        margin-left: 4%;
     }
 
-    #control a:hover
-    {
-        border-style: inset;
-    }
+    #control a:hover { border-style: inset; }
     #title
     {
-        font-size: 18pt;
-        margin-left: 1em;
+        font-size: 80%;
+        margin-left: 10%;
     }
 
     #collection { float: left; min-height: 10em; background-color: #099; width: 50%;}
-    #playlist { float: right; min-height: 10em; background-color: #911; width: 50%;}
 
-    select { width: 98%; height: 30em; };
+    #playlist { float: right; min-height: 10em; background-color: silver; width: 50%;}
 
-    .ui-selected { background-color: red; }
-    .ui-selecting { background-color: orange; }
+    select { width: 98%; height: 80%; background-color: black; color: silver; };
+
+    .ui-selected { background-color: DeepPink; }
+    .ui-selecting { background-color: gold; }
+
+    #volume { float: left; height: 80%; width: 1%; margin-left: 1%; }
+    #volume .ui-slider-handle { visibility: hidden; }
+    #volume .ui-slider-range { background-color: gold; }
+
+    #seek { margin-left: 1%; margin-right: 1% }
+    #seek .ui-slider-handle { visibility: hidden; }
+    #seek .ui-slider-range { background-color: gold; }
+
+
 
 
 -->
@@ -375,20 +411,10 @@ function update(data)
     $("#album").html(data.album);
     $("#timer").html(data.timer);
 
+    $("#volume").slider('option', 'value', data.volume);
+    $("#seek").slider('option', 'value', data.pos);
+    $("#seek").slider('option', 'max', data.length);
 
-    $("#volume").slider
-    ({
-        orientation: 'vertical',
-        change: volume,
-        value: data.volume
-    });
-
-    $("#seek").slider
-    ({
-        change: seek,
-        value: data.pos,
-        max: data.length,
-    });
 }
  
 function volume(event, ui)
@@ -426,6 +452,24 @@ function init()
 {
     $("#file_list").selectable();
     $("#play_list").selectable();
+
+    $(".draggable").draggable({start: function (e,u) { $(this).css('z-index', $(this).css('z-index')+1) }});
+    $(".draggable").resizable();
+
+    $("#volume").slider
+    ({
+        orientation: 'vertical',
+        change: volume,
+        value: 0,
+        range: 'min',
+    });
+
+    $("#seek").slider
+    ({
+        change: seek,
+        range: 'min',
+    });
+
 
     $("#playlist_add").click(function()
     {
