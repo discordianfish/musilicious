@@ -476,6 +476,7 @@ __DATA__
         background-color: black;
         border: 5px dashed silver;
         width: 50%;
+        z-index: 0;
     }
 
     select { width: 98%; height: 80%; background-color: black; color: silver; }
@@ -598,7 +599,7 @@ function init()
     $("#file_list").selectable();
     $("#play_list").selectable();
 
-    $(".draggable").draggable({start: function (e,u) { $(this).css('z-index', $(this).css('z-index')+1) }});
+    $(".draggable").draggable({start: function () { $(this).css('z-index', parseInt($(this).css('z-index'))+1) }});
     $(".draggable").resizable();
 
     $("#player").css('height', '15em');
@@ -640,6 +641,10 @@ function init()
     }) })
 
     $('#toggles a').each(function(i,v) { $(this).click(function () { rpc("toggle_" + this.id); return false; }) })
+
+
+    // select boxes get replaced with jquerys selectable based lists
+    $('#playlist').empty();
 
 
 
