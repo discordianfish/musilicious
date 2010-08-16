@@ -11,6 +11,30 @@ use Data::Dumper;
 
 # Hey, what kinda party is this? There's no booze and only one hooker.
 
+
+# Looks like Audio::MPD is missing that function, so adding it here
+sub Audio::MPD::output_list {
+    my ($self, $output) = @_;
+    my @outputs;
+    my %output;
+    for my $line ($self->_send_command("outputs\n"))
+    {
+        next if $line eq 'outputs';
+
+        my ($k,$v) = split /: /, $line;
+        $k =~ s/^output//;
+
+        $output{$k} = $v;
+        if ($k eq 'enabled')
+        {
+            push @outputs, { %output };
+            %output = ();
+        }
+    }
+    return @outputs;
+}
+
+
 my %action_map =
 (
     playpause => 'pause',
@@ -20,11 +44,23 @@ my %action_map =
     prev => 'prev',
     volume => 'volume',
     seek => 'seek',
+    toggle_repeat => 'repeat',
+    toggle_random => 'random',
+    toggle_xfade => 'fade',
+    output_enable => 'output_enable',
+    output_disable => 'output_disable',
     playlist_clear => [ 'playlist', 'clear' ],
     playlist_add => [ 'playlist', 'add' ],
     playlist_delete => [ 'playlist', 'deleteid' ],
     'collection_to playlist' => [ 'playlist', 'add' ],
     playlist_play => sub { return ['playid'], [ (shift) ] },
+);
+
+my %func_map =
+(
+    status => ['audio', 'bitrate', 'error', 'playlist', 'playlistlength', 'random', 'repeat', 'songid', 'song', 'state', 'time', 'updating_db', 'volume', 'xfade'],
+    stats => [ 'artists', 'albums', 'songs', 'uptime', 'playtime', 'db_playtime', 'db_update' ],
+    current => ['album', 'artist', 'date', 'disc', 'file', 'genre', 'id', 'name', 'pos', 'title', 'track', 'time'],
 );
 
 my $mpd = Audio::MPD->new(host => 'localhost', port => '6600');
@@ -70,13 +106,14 @@ get '/collection/(*path)' => { path => '' } => sub
 } => 'editor';
 
 
-get '/action/:action' => sub
+get '/action/:action/:value' => { value => undef } => sub
 {
     my $self = shift;
     my $action = $self->stash('action');
+    my $value = $self->stash('value');
 
 
-    _action($action);
+    _action($action, $value);
     $self->redirect_to('index');
 
 } => 'action';
@@ -102,7 +139,6 @@ post '/action/:source' => sub
             
             ($o, $m) = @{ $action_map{$action} };
         }
-        warn "!!!!                calling mpd->$o->$m(@list)";
         if ($m)
         {
             $mpd->$o->$m(@list);
@@ -120,15 +156,15 @@ post '/action/:source' => sub
 
 # JSON RPC for Ajax-Requests
 
-get '/rpc/:action/:value' => { action => 'noop', value => 0 } => sub
+get '/rpc/:action/:value' => { action => undef, value => undef } => sub
 {
     my $self = shift;
     my $action = $self->stash('action');
     my $value = $self->stash('value');
 
-    _action($action, $value) unless $action eq 'noop';
+    _action($action, $value) if $action;
 
-    $self->render_json({ _status() });
+    $self->render_json({ _serialize(_status()) });
 } => 'rpc';
 
 post '/rpc/:action' => sub
@@ -142,7 +178,7 @@ post '/rpc/:action' => sub
         $mpd->$o->$m(@list);
     }
 
-    $self->render_json({ _status() });
+    $self->render_json({ _serialize(_status()) });
 } => 'rpc_post';
 
 # Static file delivery
@@ -159,6 +195,7 @@ sub _action
     my $value = shift;
     my $action = $action_map{ $q } or die "invalid action: $q";
 
+    warn Dumper($action) . "with: $value\n\n";
     # just try it..
     if (ref $action eq 'ARRAY')
     {
@@ -168,6 +205,26 @@ sub _action
     {
         $mpd->$action($value);
     }
+}
+
+sub _serialize
+{
+    my %in = @_;
+    my %out;
+    for my $key (keys %in)
+    {
+        if (defined blessed $in{$key})
+        {
+            for my $func (@{ $func_map{$key} })
+            {
+                $out{$key}->{$func} = $in{$key}->$func;
+            }
+        } else {
+            $out{$key} = $in{$key};
+        }
+    }
+    warn Dumper \%out;
+    return %out;
 }
 
 sub _status
@@ -189,7 +246,8 @@ sub _status
          current => $current,
          status => $status,
          length => $length,
-         pos => $pos
+         pos => $pos,
+         outputs => [ $mpd->output_list ],
     )
 }
 
@@ -221,19 +279,52 @@ __DATA__
         <div id="volume"></div>
         <div class="text">
             <span id="artist"><%= eval { $current->artist } %></span><br />
-            <span id="title"><%= eval { $current->title } %></span>
+            <span id="title"><%= eval { $current->title || $current->file } %></span>
             <span id="album">(<%= eval { $current->album } %>)</span>
             <span id="timer"><%= eval { $current->time } %></span>
         </div>
     </div>
     <div id="seek"></div>
     <span id="control">
-    <a id="play"        href="<%= url_for('action', action => 'play') %>">|&gt;</a>
-    <a id="stop"        href="<%= url_for('action', action => 'stop') %>">[ ]</a>
-    <a id="playpause"   href="<%= url_for('action', action => 'playpause') %>">|&gt;/||</a>
-    <a id="next"        href="<%= url_for('action', action => 'next') %>">&rang;&rang;</a>
-    <a id="prev"        href="<%= url_for('action', action => 'prev') %>">&lang;&lang;</a>
+        <a id="prev"        href="<%= url_for('action', action => 'prev') %>">&#x226a;</a>
+        <a id="play"        href="<%= url_for('action', action => 'play') %>">&#x25b6;</a>
+        <a id="playpause"   href="<%= url_for('action', action => 'playpause') %>">&#x25ae;&#x25ae;</a>
+        <a id="stop"        href="<%= url_for('action', action => 'stop') %>">&#x25a0;</a>
+        <a id="next"        href="<%= url_for('action', action => 'next') %>">&#x226b;</a>
     </span>
+    <span id="toggles">
+        <a id="repeat" class="toggle"
+           class="<%= $status->repeat == 0 ? 'disabled' : 'enabled' %>"
+           href="<%= url_for('action', action => 'toggle_repeat') %>">
+                &#x21ba;
+        </a>
+%# 3 stright arrows &#x21f6; 
+
+        <a id="random" class="toggle"
+            class="<%= $status->random == 0 ? 'disabled' : 'enabled' %>"
+            href="<%= url_for('action', action => 'toggle_random') %>">
+                &#x2682;
+        </a>
+        <a id="xfade" class="toggle"
+            class="<%= $status->xfade == 0 ? 'disabled' : 'enabled' %>"
+            href="<%= url_for('action', action => 'toggle_xfade') %>">
+                &asymp;
+        </a>
+    </span>
+    <div id="outputs">
+        <ul>
+% for my $output (@$outputs) {
+            <li><a id="<%= $output->{id} %>" class="<%= $output->{enabled} ? 'enabled' : 'disabled' %>"
+                href="<%= url_for('action', action => $output->{enabled} ? 'output_disable' : 'output_enable', value => $output->{id}) %>">
+                    <%= $output->{name} %>
+            </a></li>
+% }
+        </ul>
+    </div>
+<!--    <span id="notes">
+    &#x266d; &#x266c; &#x266b; &#x266a; &#x2669;
+    </span>
+-->
 </div>
 
 @@ collection.html.ep
@@ -247,7 +338,7 @@ __DATA__
                     <option value="<%= $directory->directory %>" class="directory"> <%= $directory->directory %>
 % }
 % for my $song (@$songs) {
-                    <option value="<%= $song->file %>" class="directory"> <%= $song->directory %>
+                    <option value="<%= $song->file %>" class="song"> <%= $song->directory %>
 % }
                 </select>
                 <input type="submit" name="action" value="to playlist">
@@ -290,14 +381,12 @@ __DATA__
             <select name="data" multiple>
 % for my $song ( $playlist->as_items ) {
                 <option value="<%= $song->id %>">
-                <span id="info">
-                    <span><%= $song->pos %></span>
-                    <span><%= $song->artist || $song->file %></span>
-                    <span><%= $song->title %></span>
-                    <span><%= $song->album %></span>
-                    <span><%= $song->date %></span>
-                    <span><%= $song->time %></span>
-                </span>
+                    <%= $song->pos %>
+                    <%= $song->artist || $song->file %>
+                    <%= $song->title %>
+                    <%= $song->album %>
+                    <%= $song->date %>
+                    <%= $song->time %>
                 </option>
 % }
             </select>
@@ -316,6 +405,8 @@ __DATA__
 @@ layouts/default.html.ep
 <!doctype html>
 <head>
+ <meta charset="utf-8">
+ <title>musilicious: <%= eval { $current->artist } %> - <%= eval { $current->title } %></title>
  <style type="text/css">
 <!--
     a { text-decoration: none; color: white; }
@@ -379,7 +470,13 @@ __DATA__
 
     #playlist { float: right; min-height: 10em; background-color: silver; width: 50%;}
 
-    select { width: 98%; height: 80%; background-color: black; color: silver; };
+    select { width: 98%; height: 80%; background-color: black; color: silver; }
+
+    select .directory { font-weight: bold; }
+
+    .enabled { color: white; }
+    .disabled { color: purple; }
+
 
     .ui-selected { background-color: DeepPink; }
     .ui-selecting { background-color: gold; }
@@ -391,7 +488,10 @@ __DATA__
     #seek { margin-left: 1%; margin-right: 1% }
     #seek .ui-slider-handle { visibility: hidden; }
     #seek .ui-slider-range { background-color: gold; }
-
+    
+    #toggles { padding: 3%; vertical-align: center; font-size: 150%; }
+    #outputs { float: right; }
+    #outputs ul { list-style-type: none; font-size: smaller; margin: 0; padding 0; margin-right: 4%; }
 
 
 
@@ -411,7 +511,36 @@ function update(data)
     $("#album").html(data.album);
     $("#timer").html(data.timer);
 
-    $("#volume").slider('option', 'value', data.volume);
+    $('#toggles a').each(function(i,v)
+    {
+        if(data.status[this.id])
+        {
+            $(this).removeClass('disabled');
+            $(this).addClass('enabled');
+
+        } else
+        {
+            $(this).removeClass('enabled');
+            $(this).addClass('disabled');
+
+        }
+    });
+
+    $('#outputs a').each(function()
+    {
+        // hope that index of array equals id of output
+        if (data.outputs[this.id].enabled)
+        {
+            $(this).removeClass('disabled');
+            $(this).addClass('enabled');
+        } else
+        {
+            $(this).removeClass('enabled');
+            $(this).addClass('disabled');
+        }
+    });
+
+    $("#volume").slider('option', 'value', data.status.volume);
     $("#seek").slider('option', 'value', data.pos);
     $("#seek").slider('option', 'max', data.length);
 
@@ -456,11 +585,16 @@ function init()
     $(".draggable").draggable({start: function (e,u) { $(this).css('z-index', $(this).css('z-index')+1) }});
     $(".draggable").resizable();
 
+    $("#player").css('height', '15em');
+    $("#player").css('width', '25em');
+
+    $("#player").resizable("option", "minHeight", 210);
+    $("#player").resizable("option", "minWidth", 210);
+
     $("#volume").slider
     ({
         orientation: 'vertical',
         change: volume,
-        value: 0,
         range: 'min',
     });
 
@@ -476,6 +610,21 @@ function init()
         rpc('playlist_add', $("#files .ui-selected").map(function() { return this.innerHTML }).get());
     });
     $("#playlist_clear").click(function() { rpc('playlist_clear') });
+
+    $('#control a').each(function(i,v) { $(this).click(function () { rpc(this.id); return false; }) })
+    $('#outputs a').each(function(i,v) { $(this).click(function () {
+        if ($(this).attr('class') == 'disabled')
+        {
+            rpc('output_enable', this.id);
+        } else
+        {
+            rpc('output_disable', this.id);
+        }
+        return false;
+    }) })
+
+    $('#toggles a').each(function(i,v) { $(this).click(function () { rpc("toggle_" + this.id); return false; }) })
+
 }
  $(document).ready(function() { init(); rpc(); setInterval(function() { rpc() }, 3000) });
 
