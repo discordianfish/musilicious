@@ -380,13 +380,15 @@ __DATA__
         <form action="<%= url_for('action_post') %>/playlist" method="post">
             <select name="data" multiple>
 % for my $song ( $playlist->as_items ) {
-                <option value="<%= $song->id %>">
-                    <%= $song->pos %>
-                    <%= $song->artist || $song->file %>
-                    <%= $song->title %>
-                    <%= $song->album %>
-                    <%= $song->date %>
-                    <%= $song->time %>
+                <option
+                    value="<%= $song->id %>"
+%   if ($song->id eq $current->id) {
+                    class="current"
+                    selected
+%   }
+                >
+                    <%= $song->artist || $song->file %> - <%= $song->title %>
+                    (<%= $song->album %> - <%= $song->date %>)
                 </option>
 % }
             </select>
@@ -468,7 +470,13 @@ __DATA__
 
     #collection { float: left; min-height: 10em; background-color: #099; width: 50%;}
 
-    #playlist { float: right; min-height: 10em; background-color: silver; width: 50%;}
+    #playlist {
+        float: right;
+        min-height: 10em;
+        background-color: black;
+        border: 5px dashed silver;
+        width: 50%;
+    }
 
     select { width: 98%; height: 80%; background-color: black; color: silver; }
 
@@ -492,6 +500,7 @@ __DATA__
     #toggles { padding: 3%; vertical-align: center; font-size: 150%; }
     #outputs { float: right; }
     #outputs ul { list-style-type: none; font-size: smaller; margin: 0; padding 0; margin-right: 4%; }
+    .current { color: DeepPink; }
 
 
 
@@ -505,11 +514,12 @@ __DATA__
  <script>
 function update(data)
 {
+    // TODO: store state internally and update only on demand
 
-    $("#artist").html(data.artist);
-    $("#title").html(data.title);
-    $("#album").html(data.album);
-    $("#timer").html(data.timer);
+    $("#artist").html(data.current.artist);
+    $("#title").html(data.current.title);
+    $("#album").html(data.current.album);
+    $("#timer").html(data.current.timer);
 
     $('#toggles a').each(function(i,v)
     {
@@ -540,10 +550,16 @@ function update(data)
         }
     });
 
+/*
+    $('#playlist .current').removeClass('current');
+    $('#playlist .current').selected = false;
+
+    $('#playlist option[value='+data.current.id+']').addClass('current');
+    $('#playlist option[value='+data.current.id+']').selected = true;
+*/
     $("#volume").slider('option', 'value', data.status.volume);
     $("#seek").slider('option', 'value', data.pos);
     $("#seek").slider('option', 'max', data.length);
-
 }
  
 function volume(event, ui)
@@ -624,6 +640,9 @@ function init()
     }) })
 
     $('#toggles a').each(function(i,v) { $(this).click(function () { rpc("toggle_" + this.id); return false; }) })
+
+
+
 
 }
  $(document).ready(function() { init(); rpc(); setInterval(function() { rpc() }, 3000) });
