@@ -69,14 +69,14 @@ get '/' => sub
 {
     my $self = shift;
 
-    $self->render( _status(), playlist => $mpd->playlist );
+    $self->render(_status(), playlist => $mpd->playlist);
 
 } => 'index';
 
 get '/tiny' => sub
 {
     my $self = shift;
-    $self->render( _status() );
+    $self->render(_status());
 } => 'tiny';
 
 get '/collection/(*path)' => { path => '' } => sub
@@ -84,27 +84,22 @@ get '/collection/(*path)' => { path => '' } => sub
     my $self = shift;
     my $path = $self->stash('path');
 
-
-    my @files = $mpd->collection->items_in_dir($path);
-
-    my @songs =  grep { $_->isa('Audio::MPD::Common::Item::Song') } @files;
-    my @playlists =  grep { $_->isa('Audio::MPD::Common::Item::Playlist') } @files;
-    my @directories =  grep { $_->isa('Audio::MPD::Common::Item::Directory') } @files;
-
-    my $parent = $path;
-    $parent =~ s/\/?[^\/]*$//; # KISS
-
-    $self->render
-    (
-        songs => \@songs,
-        playlists => \@playlists,
-        directories => \@directories,
-        playlist => $mpd->playlist,
-        parent => $parent
-    );
-
+    $self->render(_status(), _collection($path));
 } => 'editor';
 
+# plain/static html "components"
+get '/playlist' => sub { shift->render(_status(), playlist => $mpd->playlist) } => 'playlist';
+get '/collection' => sub { shift->render(_status(), _collection()) } => 'collection';
+
+
+get '/component' => sub
+{
+    #dummy, just need to make it know the route for url_for js mix
+} => 'component';
+
+
+get '/component/playlist' => sub { shift->render(_status(), playlist => $mpd->playlist) } => 'component/playlist';
+get '/component/collection' => sub { shift->render(_status(), _collection()) } => 'component/collection';
 
 get '/action/:action/:value' => { value => undef } => sub
 {
@@ -251,7 +246,28 @@ sub _status
     )
 }
 
+sub _collection
+{
+    my $path = shift;
 
+    my @files = $mpd->collection->items_in_dir($path);
+
+    my @songs =  grep { $_->isa('Audio::MPD::Common::Item::Song') } @files;
+    my @playlists =  grep { $_->isa('Audio::MPD::Common::Item::Playlist') } @files;
+    my @directories =  grep { $_->isa('Audio::MPD::Common::Item::Directory') } @files;
+
+    my $parent = $path;
+    $parent =~ s/\/?[^\/]*$//; # KISS
+
+    return
+    (
+        songs => \@songs,
+        playlists => \@playlists,
+        directories => \@directories,
+        playlist => $mpd->playlist,
+        parent => $parent
+    );
+}
 app->start;
 
 __DATA__
@@ -259,7 +275,7 @@ __DATA__
 @@ index.html.ep
 % layout 'default';
 <%= include "player" %>
-<%= include "playlist" %>
+%# <%= include "playlist" %>
 
 
 @@ tiny.html.ep
@@ -273,6 +289,14 @@ __DATA__
 <%= include "playlist" %>
 
 
+@@ playlist.html.ep
+% layout 'default';
+<%= include 'component/playlist' %>
+
+@@ collection.html.ep
+% layout 'default';
+<%= include 'component/collection' %>
+
 @@ player.html.ep
 <div id="player" class="draggable">
     <div id="display">
@@ -282,6 +306,13 @@ __DATA__
             <span id="title"><%= eval { $current->title || $current->file } %></span>
             <span id="album">(<%= eval { $current->album } %>)</span>
             <span id="timer"><%= eval { $current->time } %></span>
+        </div>
+        <div id="components">
+            <ul>
+                <li><a href="<%= url_for('editor') %>">ed</a></li>
+                <li><a href="<%= url_for('collection') %>" class="collection">db</a></li>
+                <li><a href="<%= url_for('playlist') %>" class="playlist">pl</a></li>
+            </ul>
         </div>
     </div>
     <div id="seek"></div>
@@ -327,7 +358,7 @@ __DATA__
 -->
 </div>
 
-@@ collection.html.ep
+@@ component/collection.html.ep
     <div id="collection" class="draggable">
         <h1>Collection</h1>
         <div id="files">
@@ -373,16 +404,20 @@ __DATA__
 
     </div>
 
-@@ playlist.html.ep
+@@ component/playlist.html.ep
     <div id="playlist" class="draggable">
         <h1>Playlist</h1>
         <h2>Entries</h2>
         <form action="<%= url_for('action_post') %>/playlist" method="post">
+            <input type="submit" name="action" value="delete" />
+            <input type="submit" name="action" value="clear" />
+            <input type="submit" name="action" value="play" />
+            <br />
             <select name="data" multiple>
 % for my $song ( $playlist->as_items ) {
                 <option
                     value="<%= $song->id %>"
-%   if ($song->id eq $current->id) {
+%   if ($current and $song->id eq $current->id) {
                     class="current"
                     selected
 %   }
@@ -392,15 +427,7 @@ __DATA__
                 </option>
 % }
             </select>
-            <input type="submit" name="action" value="delete" />
-            <input type="submit" name="action" value="clear" />
-            <input type="submit" name="action" value="play" />
         </form>
-        JS Button:
-    <input type="button" value="clear" id="playlist_clear" />
-        <div id="links">
-            <p><a href="<%= url_for('editor') %>">editor</a></p>
-        </div>
     </div>
 
 
@@ -423,6 +450,8 @@ __DATA__
         border: 1px solid Purple;
         width: auto;
         background-color: DeepPink;
+        min-height: 10em;
+        min-width: 10em;
         z-index: 1;
     }
 
@@ -472,14 +501,26 @@ __DATA__
 
     #playlist {
         float: right;
-        min-height: 10em;
+        min-height: 20em;
+        min-width: 10em;
         background-color: black;
         border: 5px dashed silver;
         width: 50%;
         z-index: 0;
     }
 
-    select { width: 98%; height: 80%; background-color: black; color: silver; }
+    select
+    {
+        /*  with normal positiong the height doesn't resize when resizing
+            the container - aka workaround because I'm to lazy to fix this */
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        top: 12em;
+        background-color: black;
+        color: silver;
+    }
 
     select .directory { font-weight: bold; }
 
@@ -489,6 +530,9 @@ __DATA__
 
     .ui-selected { background-color: DeepPink; }
     .ui-selecting { background-color: gold; }
+
+    #components { float: right; }
+    ul { list-style-type: none; }
 
     #volume { float: left; height: 80%; width: 1%; margin-left: 1%; }
     #volume .ui-slider-handle { visibility: hidden; }
@@ -500,7 +544,7 @@ __DATA__
     
     #toggles { padding: 3%; vertical-align: center; font-size: 150%; }
     #outputs { float: right; }
-    #outputs ul { list-style-type: none; font-size: smaller; margin: 0; padding 0; margin-right: 4%; }
+    #outputs ul { font-size: smaller; margin: 0; padding 0; margin-right: 4%; }
     .current { color: DeepPink; }
 
 
@@ -517,10 +561,13 @@ function update(data)
 {
     // TODO: store state internally and update only on demand
 
-    $("#artist").html(data.current.artist);
-    $("#title").html(data.current.title);
-    $("#album").html(data.current.album);
-    $("#timer").html(data.current.timer);
+    if (data.current)
+    {
+        $("#artist").html(data.current.artist);
+        $("#title").html(data.current.title);
+        $("#album").html(data.current.album);
+        $("#timer").html(data.current.timer);
+    }
 
     $('#toggles a').each(function(i,v)
     {
@@ -594,6 +641,48 @@ function rpc(action, value)
     }
 }
 
+function requestComponent(component)
+{
+        var el = document.getElementById(component);
+        if (el)
+        {
+            $(el).remove();
+        } else
+        {
+            /* FIXME: that feels awfull */
+            if (component == 'collection')
+            {
+                $.get("<%= url_for('/component') %>/collection", insertCollection);
+            } else if (component = 'playlist')
+            {
+                $.get("<%= url_for('/component') %>/playlist", insertPlaylist);
+            }
+        }
+        return false;
+}
+
+function insertCollection(data)
+{
+    insertComponent('collection', data);
+}
+
+function insertPlaylist(data)
+{
+    insertComponent('playlist', data);
+}
+
+function insertComponent(component, data)
+{
+    /* make sure to not reinsert the same element */
+    if (document.getElementById(component))
+    {
+        return
+    }
+
+    $("body").append(data);
+    init();
+}
+
 function init()
 {
     $("#file_list").selectable();
@@ -605,8 +694,6 @@ function init()
     $("#player").css('height', '15em');
     $("#player").css('width', '25em');
 
-    $("#player").resizable("option", "minHeight", 210);
-    $("#player").resizable("option", "minWidth", 210);
 
     $("#volume").slider
     ({
@@ -626,7 +713,7 @@ function init()
     {
         rpc('playlist_add', $("#files .ui-selected").map(function() { return this.innerHTML }).get());
     });
-    $("#playlist_clear").click(function() { rpc('playlist_clear') });
+    $("#playlist input[value=clear]").click(function() { rpc('playlist_clear') });
 
     $('#control a').each(function(i,v) { $(this).click(function () { rpc(this.id); return false; }) })
     $('#outputs a').each(function(i,v) { $(this).click(function () {
@@ -642,12 +729,8 @@ function init()
 
     $('#toggles a').each(function(i,v) { $(this).click(function () { rpc("toggle_" + this.id); return false; }) })
 
-
-    // select boxes get replaced with jquerys selectable based lists
-    $('#playlist').empty();
-
-
-
+    $('#components .collection').click(function() { return requestComponent('collection') });
+    $('#components .playlist').click(function() { return requestComponent('playlist') });
 
 }
  $(document).ready(function() { init(); rpc(); setInterval(function() { rpc() }, 3000) });
