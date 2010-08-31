@@ -498,7 +498,13 @@ __DATA__
         margin-left: 10%;
     }
 
-    #collection { float: left; min-height: 10em; background-color: #099; width: 50%;}
+    #collection {
+        float: left;
+        min-height: 10em;
+        background-color: black;
+        width: 50%;
+        border: 5px dashed silver;
+    }
 
     #playlist {
         float: right;
@@ -510,7 +516,7 @@ __DATA__
         z-index: 0;
     }
 
-    select
+    #playlist select
     {
         /*  with normal positiong the height doesn't resize when resizing
             the container - aka workaround because I'm to lazy to fix this */
@@ -716,7 +722,7 @@ function init()
     {
         rpc('playlist_add', $("#files .ui-selected").map(function() { return this.innerHTML }).get());
     });
-    $("#playlist input[value=clear]").click(function() { rpc('playlist_clear') });
+    $("#playlist input[value=clear]").click(function() { rpc('playlist_clear'); return false; });
 
     $('#control a').each(function(i,v) { $(this).click(function () { rpc(this.id); return false; }) })
     $('#outputs a').each(function(i,v) { $(this).click(function () {
