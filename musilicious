@@ -655,10 +655,10 @@ function requestComponent(component)
             /* FIXME: that feels awfull */
             if (component == 'collection')
             {
-                $.get("<%= url_for('/component') %>/collection", insertCollection);
+                $.get("<%= url_for('component/collection') %>", insertCollection);
             } else if (component = 'playlist')
             {
-                $.get("<%= url_for('/component') %>/playlist", insertPlaylist);
+                $.get("<%= url_for('component/playlist') %>", insertPlaylist);
             }
         }
         return false;
