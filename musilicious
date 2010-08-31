@@ -343,14 +343,15 @@ __DATA__
         </a>
     </span>
     <div id="outputs">
-        <ul>
+        <dl>
+            <dt><b>Outputs:</b></dt>
 % for my $output (@$outputs) {
-            <li><a id="<%= $output->{id} %>" class="<%= $output->{enabled} ? 'enabled' : 'disabled' %>"
+            <dt><a id="<%= $output->{id} %>" class="<%= $output->{enabled} ? 'enabled' : 'disabled' %>"
                 href="<%= url_for('action', action => $output->{enabled} ? 'output_disable' : 'output_enable', value => $output->{id}) %>">
                     <%= $output->{name} %>
-            </a></li>
+            </a></dt>
 % }
-        </ul>
+        </dl>
     </div>
 <!--    <span id="notes">
     &#x266d; &#x266c; &#x266b; &#x266a; &#x2669;
@@ -531,7 +532,7 @@ __DATA__
     .ui-selected { background-color: DeepPink; }
     .ui-selecting { background-color: gold; }
 
-    #components { float: right; }
+    #components { position: absolute; right: 1em; top: 0px; }
     ul { list-style-type: none; }
 
     #volume { float: left; height: 80%; width: 1%; margin-left: 1%; }
@@ -542,9 +543,11 @@ __DATA__
     #seek .ui-slider-handle { visibility: hidden; }
     #seek .ui-slider-range { background-color: gold; }
     
-    #toggles { padding: 3%; vertical-align: center; font-size: 150%; }
-    #outputs { float: right; }
-    #outputs ul { font-size: smaller; margin: 0; padding 0; margin-right: 4%; }
+    #toggles { padding: 3%; vertical-align: center; font-size: 150%; width: 50%; }
+
+    #outputs { position: absolute; right: 0; bottom: 0; width: 50%; }
+    #outputs dl { font-size: smaller; margin: 0; padding 0; }
+    #outputs dt { display: inline; margin-right: 4%; }
     .current { color: DeepPink; }
 
 
