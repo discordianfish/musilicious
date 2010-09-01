@@ -63,7 +63,11 @@ my %func_map =
     current => ['album', 'artist', 'date', 'disc', 'file', 'genre', 'id', 'name', 'pos', 'title', 'track', 'time'],
 );
 
-my $mpd = Audio::MPD->new(host => 'localhost', port => '6600');
+my $mpd = Audio::MPD->new
+(
+    host => $ENV{'MPD_HOST'} || 'localhost',
+    port => $ENV{'MPD_PORT'} || '6600'
+);
 
 get '/' => sub
 {
