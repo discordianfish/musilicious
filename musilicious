@@ -701,7 +701,7 @@ function init()
     $("#file_list").selectable();
     $("#play_list").selectable();
 
-    $(".draggable").draggable({start: function () { $(this).css('z-index', parseInt($(this).css('z-index'))+1) }});
+    $(".draggable").draggable({ stack: '.draggable' });
     $(".draggable").resizable();
 
     $("#player").css('height', '15em');
