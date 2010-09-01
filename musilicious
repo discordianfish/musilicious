@@ -6,6 +6,7 @@ use Mojo::ByteStream 'b';
 
 use Audio::MPD;
 use Scalar::Util qw(blessed);
+use File::Basename qw(basename);
 #use Carp qw(confess); $SIG{__WARN__} = \&confess;
 use Data::Dumper;
 
@@ -62,6 +63,8 @@ my %func_map =
     stats => [ 'artists', 'albums', 'songs', 'uptime', 'playtime', 'db_playtime', 'db_update' ],
     current => ['album', 'artist', 'date', 'disc', 'file', 'genre', 'id', 'name', 'pos', 'title', 'track', 'time'],
 );
+
+app->renderer->add_helper(basename => sub { shift; return basename shift });
 
 my $mpd = Audio::MPD->new
 (
@@ -269,7 +272,8 @@ sub _collection
         playlists => \@playlists,
         directories => \@directories,
         playlist => $mpd->playlist,
-        parent => $parent
+        parent => $parent,
+        path => $path,
     );
 }
 app->start;
@@ -312,11 +316,11 @@ __DATA__
             <span id="timer"><%= eval { $current->time } %></span>
         </div>
         <div id="components">
-            <ul>
-                <li><a href="<%= url_for('editor') %>">ed</a></li>
-                <li><a href="<%= url_for('collection') %>" class="collection">db</a></li>
-                <li><a href="<%= url_for('playlist') %>" class="playlist">pl</a></li>
-            </ul>
+            <dl>
+                <dt><a href="<%= url_for('editor') %>">ed</a></dt>
+                <dt><a href="<%= url_for('collection') %>" class="collection">db</a></dt>
+                <dt><a href="<%= url_for('playlist') %>" class="playlist">pl</a></dt>
+            </dl>
         </div>
     </div>
     <div id="seek"></div>
@@ -365,48 +369,47 @@ __DATA__
 
 @@ component/collection.html.ep
     <div id="collection" class="draggable">
-        <h1>Collection</h1>
+        <h1><%= $path %></h1>
+        <small><a href="<%= url_for('editor', path => $parent) %>">back to <%= $parent %></a></small>
+        <div id="directories">
+            <h2>Directories</h2>
+            <dl>
+% for my $directory (@$directories) {
+                <dt><a href="<%= url_for('editor', path => $directory->directory) %>"><%= basename $directory->directory %></a></dt>
+% }
+            </dl>
+        </div>
+
         <div id="files">
             <h2>Files</h2>
             <form action="<%= url_for 'action_post' %>/collection" method='post'>
                 <select name="data" multiple>
 % for my $directory (@$directories) {
-                    <option value="<%= $directory->directory %>" class="directory"> <%= $directory->directory %>
+                    <option value="<%= $directory->directory %>" class="directory"> <%= basename $directory->directory %>
 % }
 % for my $song (@$songs) {
-                    <option value="<%= $song->file %>" class="song"> <%= $song->directory %>
+                    <option value="<%= $song->file %>" class="song"> <%= basename $song->file %>
 % }
                 </select>
-                <input type="submit" name="action" value="to playlist">
-                <input type="submit" name="action" value="update db">
+                <p>
+                    <input type="submit" name="action" value="to playlist">
+                    <input type="submit" name="action" value="update db">
+                </p>
             </form>
-            JS Button:
-            <input type="button" value="add" id="playlist_add" />
-            <a href="<%= url_for('editor', path => $parent) %>">back to <%= $parent %></a>
-        </div>
-
-        <div id="directories">
-            <h2>Directories</h2>
-            <ul>
-% for my $directory (@$directories) {
-                <li><a href="<%= url_for('editor', path => $directory->directory) %>"><%= $directory->directory %></a></li>
-% }
-            </ul>
         </div>
 
         <div id="playlists">
             <h2>Playlists</h2>
-            <ul>
+            <dl>
 % for my $playlist (@$playlists) {
-                <li>
+                <dt>
                     <a href="<%= url_for('action', action => 'playlist_load', value => $playlist->playlist) %>">
                         <%= $playlist->playlist %>
                     </a>
-                </li>
+                </dt>
 % }
-            </ul>
+            </dl>
         </div>
-
     </div>
 
 @@ component/playlist.html.ep
@@ -444,9 +447,10 @@ __DATA__
  <style type="text/css">
 <!--
     a { text-decoration: none; color: white; }
-    html { background-color: black; color: white; }
+    html { background-color: black; color: white; font-family: sans-serif; scrollbar-base-color: black; }
 
-    h1,h2 { color: gold; }
+    h1 { font-weight: bolder; }
+    h1,h2 { color: gold; font-size: 100%; }
 
     #player
     {
@@ -506,17 +510,21 @@ __DATA__
         float: left;
         min-height: 10em;
         background-color: black;
-        width: 50%;
-        border: 5px dashed silver;
+        width: 48%;
+        border: 1px dashed silver;
     }
+    
+    #directories, #files, #playlists { float: left; padding: 3%; width: 30%; }
+    #files { border-left: 1px dashed silver; border-right: 1px dashed silver; }
+    #files select { width: 100%; }
 
     #playlist {
         float: right;
         min-height: 20em;
         min-width: 10em;
         background-color: black;
-        border: 5px dashed silver;
-        width: 50%;
+        border: 1px dashed silver;
+        width: 48%;
         z-index: 0;
     }
 
@@ -533,7 +541,7 @@ __DATA__
         color: silver;
     }
 
-    select .directory { font-weight: bold; }
+    .directory { color: DeepPink; }
 
     .enabled { color: white; }
     .disabled { color: purple; }
