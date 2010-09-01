@@ -572,7 +572,7 @@ function update(data)
 
     if (data.current)
     {
-        $("#artist").html(data.current.artist);
+        $("#artist").html(data.current.artist ? data.current.artist : data.current.file);
         $("#title").html(data.current.title);
         $("#album").html(data.current.album);
         $("#timer").html(data.current.timer);
